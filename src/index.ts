@@ -203,31 +203,76 @@ function applyExitOverrideDeep(cmd: Command): void {
 }
 applyExitOverrideDeep(program);
 
-function isRegisteredRootCommand(name: string): boolean {
-  return (
-    name === 'help' ||
-    program.commands.some(command => command.name() === name || command.aliases().includes(name))
+function subcommandOf(parent: Command, name: string): Command | undefined {
+  return parent.commands.find(
+    command => command.name() === name || command.aliases().includes(name),
   );
 }
 
 /**
- * Commander checks its implicit help option before reporting an unknown root
- * command. It also falls back to root help when `help <command>` names a
- * missing command. Detect both cases while help is being rendered so the
- * normal unknown-command error wins before any misleading help is written.
+ * True when `token` is an option (on `command` or any ancestor) that consumes
+ * the following token as its value — e.g. `--output json`. Without this the
+ * walk below would mistake the value `json` for a command name.
  */
-function unknownRootCommandMaskedByHelp(args: readonly string[]): string | undefined {
-  const [first, second] = args;
-  if (first === 'help') {
-    return second && !isRegisteredRootCommand(second) ? second : undefined;
+function optionConsumesNextToken(command: Command, token: string): boolean {
+  if (token.includes('=')) return false; // `--output=json` carries its value inline
+  for (let cur: Command | null = command; cur; cur = cur.parent) {
+    for (const option of cur.options) {
+      if (
+        (option.required || option.optional) &&
+        (token === option.long || token === option.short)
+      ) {
+        return true;
+      }
+    }
   }
-  if (!first || first.startsWith('-') || isRegisteredRootCommand(first)) return undefined;
-  return args.slice(1).some(arg => arg === '--help' || arg === '-h') ? first : undefined;
+  return false;
 }
 
-program.addHelpText('beforeAll', context => {
-  if (context.command !== program) return '';
-  const unknownCommand = unknownRootCommandMaskedByHelp(program.args);
+/**
+ * Commander checks its implicit help option before reporting an unknown
+ * command, and falls back to the parent's help when `help <name>` names a
+ * missing command — at every level of the tree (`help bad`, `test bad --help`,
+ * `test help bad`, `help test bad`, `project env help bad`, ...). Walk the
+ * argument path down the command tree and return the first token that fails
+ * to resolve to a real subcommand while help is being rendered, so the normal
+ * unknown-command error wins before any misleading help is written.
+ */
+function unknownCommandMaskedByHelp(args: readonly string[]): string | undefined {
+  let current: Command = program;
+  // Set once a `help` subcommand token is seen: every following operand is a
+  // help-path target that must resolve to a real subcommand.
+  let helpPath = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const token = args[i]!;
+    if (token === 'help') {
+      helpPath = true;
+      continue;
+    }
+    if (token.startsWith('-')) {
+      // Flags never name commands; a value-taking option's argument must be
+      // skipped so it isn't mistaken for one.
+      if (optionConsumesNextToken(current, token)) i += 1;
+      continue;
+    }
+    const match = subcommandOf(current, token);
+    if (match) {
+      current = match;
+      continue;
+    }
+    // An operand under a leaf command is a positional argument, not an
+    // unknown command — only groups can have one.
+    if (current.commands.length === 0) return undefined;
+    // Inside a `help` path the target itself is wrong; otherwise a later
+    // `--help`/`-h` is what masks the unknown-command error.
+    if (helpPath) return token;
+    return args.slice(i + 1).some(arg => arg === '--help' || arg === '-h') ? token : undefined;
+  }
+  return undefined;
+}
+
+program.addHelpText('beforeAll', () => {
+  const unknownCommand = unknownCommandMaskedByHelp(program.args);
   if (unknownCommand) {
     program.error(`error: unknown command '${unknownCommand}'`, {
       code: 'commander.unknownCommand',

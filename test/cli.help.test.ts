@@ -56,4 +56,59 @@ describe('unknown command help handling', () => {
     expect(result.stderr).toContain("error: unknown command 'config'");
     expect(result.stderr).not.toContain('Usage: testsprite');
   });
+
+  it('rejects an unknown subcommand through group-level help subcommand', async () => {
+    const result = await runCli(['test', 'help', 'config']);
+    expect(result.exitCode).toBe(5);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain("error: unknown command 'config'");
+    expect(result.stderr).not.toContain('Usage: testsprite');
+  });
+
+  it('rejects an unknown subcommand masked by --help at group level', async () => {
+    const result = await runCli(['test', 'config', '--help']);
+    expect(result.exitCode).toBe(5);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain("error: unknown command 'config'");
+    expect(result.stderr).not.toContain('Usage: testsprite');
+  });
+
+  it('rejects an unknown nested subcommand through root help', async () => {
+    const result = await runCli(['help', 'project', 'env', 'config']);
+    expect(result.exitCode).toBe(5);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain("error: unknown command 'config'");
+  });
+
+  it('rejects an unknown nested subcommand through group help', async () => {
+    const result = await runCli(['project', 'env', 'help', 'config']);
+    expect(result.exitCode).toBe(5);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain("error: unknown command 'config'");
+    expect(result.stderr).not.toContain('Usage: testsprite');
+  });
+
+  it('emits a JSON VALIDATION_ERROR envelope at group level', async () => {
+    const result = await runCli(['test', 'help', 'config', '--output', 'json']);
+    expect(result.exitCode).toBe(5);
+    expect(result.stdout).toBe('');
+    const parsed = JSON.parse(result.stderr) as { error: { code: string; message: string } };
+    expect(parsed.error.code).toBe('VALIDATION_ERROR');
+    expect(parsed.error.message).toContain("unknown command 'config'");
+  });
+
+  it('still renders help for a real subcommand target', async () => {
+    const result = await runCli(['test', 'help', 'run']);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Usage: testsprite test run');
+  });
+
+  it('still renders leaf and group help unchanged', async () => {
+    const leaf = await runCli(['test', 'run', '--help']);
+    expect(leaf.exitCode).toBe(0);
+    expect(leaf.stdout).toContain('Usage: testsprite test run');
+    const group = await runCli(['test', '--help']);
+    expect(group.exitCode).toBe(0);
+    expect(group.stdout).toContain('Usage: testsprite test');
+  });
 });
