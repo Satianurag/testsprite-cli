@@ -256,21 +256,24 @@ export class ApiError extends CLIError {
     apiUrl?: string,
     serverNextAction?: string,
   ) {
-    super(envelope.message, exitCodeFor(envelope.code));
+    super(redactDeep(envelope.message), exitCodeFor(envelope.code));
     this.name = 'ApiError';
     this.code = envelope.code;
     this.requestId = envelope.requestId;
-    this.nextAction = envelope.nextAction;
-    this.serverNextAction = serverNextAction ?? envelope.nextAction;
+    this.nextAction = redactDeep(envelope.nextAction);
+    this.serverNextAction = redactDeep(serverNextAction ?? envelope.nextAction);
     // Redact at the single point every ApiError is constructed — server
     // envelopes (fromEnvelope), locally-fabricated ones (authRequired,
     // localValidationError), and any future direct `new ApiError(...)` — so
-    // `.details` and `.getDetail(...)` are already clean everywhere they are
-    // read: `Output.error`'s JSON envelope, `index.ts`'s hand-built ApiError
-    // envelope, and the AUTH_FORBIDDEN/CLIENT_TOO_OLD/AMBIGUOUS_ORG text-mode
-    // blocks in `index.ts` that print specific detail keys directly (those
-    // never go through `Output.error` at all, so redacting only at the
-    // render call sites would miss them). Server envelopes are already
+    // `.message`, `.nextAction`, `.details` and `.getDetail(...)` are
+    // already clean everywhere they are read: `Output.error`'s JSON
+    // envelope, `index.ts`'s hand-built ApiError envelope, and the
+    // AUTH_FORBIDDEN/CLIENT_TOO_OLD/AMBIGUOUS_ORG text-mode blocks in
+    // `index.ts` that print specific detail keys directly (those never go
+    // through `Output.error` at all, so redacting only at the render call
+    // sites would miss them). `message`/`nextAction` need the value scan
+    // too: a server echoes the rejected request in prose, and a bearer
+    // token inside it has no key to match on. Server envelopes are already
     // redacted server-side; this is defence in depth, not the only layer.
     this.details = redactDeep(envelope.details);
     this.httpStatus = httpStatus;

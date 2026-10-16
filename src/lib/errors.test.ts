@@ -250,6 +250,36 @@ describe('ApiError.fromEnvelope', () => {
     });
     expect(err.getDetail('nested')).toEqual({ password: '[REDACTED]', apiKey: '[REDACTED]' });
   });
+
+  it('redacts a Bearer token the server echoed inside message and nextAction prose', () => {
+    // A token in free-form prose has no key to match on — the value scan is
+    // the only thing that can catch it, and it must run on the envelope's
+    // top-level strings too, not just on `details`.
+    const err = ApiError.fromEnvelope({
+      error: {
+        code: 'AUTH_FORBIDDEN',
+        message: 'Upstream rejected Authorization: Bearer eyJhbGci9.sig4567',
+        nextAction: 'Rotate Bearer eyJhbGci9.sig4567 before retrying.',
+        requestId: 'req_1',
+      },
+    });
+    expect(err.message).toBe('Upstream rejected Authorization: Bearer [REDACTED]');
+    expect(err.nextAction).toBe('Rotate Bearer [REDACTED] before retrying.');
+    expect(err.serverNextAction).toBe('Rotate Bearer [REDACTED] before retrying.');
+  });
+
+  it('keeps message and nextAction intact when no secret-shaped value is present', () => {
+    const err = ApiError.fromEnvelope({
+      error: {
+        code: 'AUTH_FORBIDDEN',
+        message: 'Use a Bearer authentication header.',
+        nextAction: 'Create a Bearer token in the portal.',
+        requestId: 'req_1',
+      },
+    });
+    expect(err.message).toBe('Use a Bearer authentication header.');
+    expect(err.nextAction).toBe('Create a Bearer token in the portal.');
+  });
 });
 
 describe('ApiError.authRequired', () => {

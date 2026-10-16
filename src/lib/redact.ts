@@ -115,6 +115,23 @@ function redactSecretLookingSubstrings(value: string): string {
 }
 
 /**
+ * Value parked under a key that {@link isSecretKey} matched. A string is
+ * replaced outright; an array carries that key's meaning element-wise (a
+ * `Set-Cookie` header list is N secrets, not one), so its string members
+ * are each replaced while non-string members keep the usual walk. Objects
+ * are walked rather than blanked — the documented metadata shapes (e.g.
+ * `ci init`'s `secret: {name, attempted, set, reason}`) legitimately sit
+ * under secret names and describe a secret without containing one.
+ */
+function redactSecretKeyedValue(value: unknown): unknown {
+  if (typeof value === 'string') return REDACTED;
+  if (Array.isArray(value)) {
+    return value.map(item => (typeof item === 'string' ? REDACTED : redactDeep(item)));
+  }
+  return redactDeep(value);
+}
+
+/**
  * Deep-walk `value`, replacing:
  *  - the string value of any object key matching {@link isSecretKey}, at any
  *    depth, arrays included, with {@link REDACTED};
@@ -139,7 +156,7 @@ export function redactDeep<T>(value: T): T {
         result[key] = v;
         continue;
       }
-      result[key] = isSecretKey(key) && typeof v === 'string' ? REDACTED : redactDeep(v);
+      result[key] = isSecretKey(key) ? redactSecretKeyedValue(v) : redactDeep(v);
     }
     return result as unknown as T;
   }

@@ -19,6 +19,28 @@ describe('redactDeep', () => {
     });
   });
 
+  it('redacts string members of an array parked under a secret key', () => {
+    // Servers echo request headers back inside `details` — `set-cookie`
+    // arrives as an array of cookie strings, each one a secret.
+    const input = {
+      'set-cookie': ['sid=s3cr3tSessionValue; HttpOnly', 'theme=light'],
+      authorization: ['Bearer sk-live-9'],
+    };
+    expect(redactDeep(input)).toEqual({
+      'set-cookie': [REDACTED, REDACTED],
+      authorization: [REDACTED],
+    });
+  });
+
+  it('keeps walking non-string members of an array under a secret key', () => {
+    // Only string members of a secret-keyed array are blanked; objects
+    // inside keep their own key-by-key rules.
+    const input = { credentials: [{ hasCredentials: true }, { token: 'tok_1' }, 42] };
+    expect(redactDeep(input)).toEqual({
+      credentials: [{ hasCredentials: true }, { token: REDACTED }, 42],
+    });
+  });
+
   it('matches password/token/secret/apiKey/api_key/authorization/cookie/credential case-insensitively', () => {
     const input = {
       Password: 'a',
