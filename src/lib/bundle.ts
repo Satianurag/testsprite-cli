@@ -39,7 +39,7 @@ import type { Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { createWriteStream } from 'node:fs';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { CliFailureContext, CliTestStep } from '../commands/test.js';
 import { ApiError, InterruptError, TransportError, localValidationError } from './errors.js';
 import { globalShutdown, type ShutdownHandle } from './interrupt.js';
@@ -613,21 +613,23 @@ export function isBundleOwnedEntry(entry: string): boolean {
  * Compatible with the #162 data-loss guard: only `isBundleOwnedEntry`
  * names are moved aside or replaced — foreign files in `--out` survive.
  *
- * Re-commit safety: bundle-owned entries are renamed to a sibling
- * aside directory before the new artifacts land. The prior `meta.json`
- * is moved aside first (§3/§7.3 — no meta ⇒ refuse to consume) so a
- * concurrent reader never sees meta pointing at steps already gone.
- * The new `meta.json` is installed last. On failure, aside entries are
- * restored so a failed re-commit never leaves the directory unusable.
+ * Re-commit safety: bundle-owned entries are renamed into an aside
+ * directory inside `dir` before the new artifacts land — staying on the
+ * same filesystem and inside a directory this run already proved
+ * writable (`.tmp` lives there too), so a read-only `--out` parent or a
+ * mounted `--out` can't break the commit with EACCES/EXDEV. The prior
+ * `meta.json` is moved aside first (§3/§7.3 — no meta ⇒ refuse to
+ * consume) so a concurrent reader never sees meta pointing at steps
+ * already gone. The new `meta.json` is installed last. On failure,
+ * aside entries are restored so a failed re-commit never leaves the
+ * directory unusable.
  */
 export async function commitBundle(
   tmpDir: string,
   dir: string,
   files: ReadonlyArray<string>,
 ): Promise<void> {
-  const parent = dirname(dir);
-  const base = basename(dir);
-  const asideDir = join(parent, `.${base}.aside.${randomUUID()}`);
+  const asideDir = join(dir, `.aside.${randomUUID()}`);
   const asideLog: Array<{ asidePath: string; restorePath: string }> = [];
 
   const asideIfPresent = async (entry: string): Promise<void> => {

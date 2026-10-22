@@ -1,5 +1,6 @@
 import type * as NodeFsPromises from 'node:fs/promises';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -101,6 +102,28 @@ describe('commitBundle', () => {
       expect(readFileSync(join(dir, 'steps', '01-evidence.json'), 'utf8')).toBe('{"step":9}\n');
       expect(readFileSync(join(dir, 'notes.txt'), 'utf8')).toBe('foreign notes\n');
       expect(existsSync(join(dir, 'result.json'))).toBe(true);
+    });
+  });
+
+  it('re-commits into an --out whose parent directory is not writable', async () => {
+    await withTempParent(async parent => {
+      const { dir, tmpDir, files } = seedBundleDirs(parent);
+
+      // Regression: the aside used to be created as a sibling of --out,
+      // so commitBundle died with EACCES whenever --out's parent wasn't
+      // writable (and with EXDEV when --out was a mount point).
+      chmodSync(parent, 0o555);
+      try {
+        await expect(commitBundle(tmpDir, dir, files)).resolves.toBeUndefined();
+      } finally {
+        chmodSync(parent, 0o755);
+      }
+
+      expect(readFileSync(join(dir, 'meta.json'), 'utf8')).toBe('{"snapshotId":"snap_new"}\n');
+      expect(readFileSync(join(dir, 'result.json'), 'utf8')).toBe('{}\n');
+      expect(readFileSync(join(dir, 'steps', '01-evidence.json'), 'utf8')).toBe('{"step":9}\n');
+      expect(readFileSync(join(dir, 'notes.txt'), 'utf8')).toBe('foreign notes\n');
+      expect(readdirSync(dir).filter(name => name.includes('.aside.'))).toEqual([]);
     });
   });
 
