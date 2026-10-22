@@ -1,4 +1,4 @@
-import { Readable, Writable } from 'node:stream';
+import { PassThrough, Readable, Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { promptSecret, promptText } from './prompt.js';
 
@@ -68,6 +68,19 @@ describe('promptText', () => {
     const input = Readable.from(['eof-no-newline']);
     const output = new CaptureStream();
     expect(await promptText('? ', { input, output })).toBe('eof-no-newline');
+  });
+
+  it('resolves a follow-up prompt after the input stream already ended', async () => {
+    // Regression: a re-prompt (setup's target-confirm loop, agent install's
+    // target prompt) on an ended stream used to never settle — the CLI then
+    // died with Node's unsettled-top-level-await exit (13) instead of
+    // resolving the default answer.
+    const input = new PassThrough();
+    const output = new CaptureStream();
+    input.end('typo\n');
+
+    await expect(promptText('One: ', { input, output })).resolves.toBe('typo');
+    await expect(promptText('Two: ', { input, output })).resolves.toBe('');
   });
 
   it('writes the question to stderr by default — keeps stdout pure for --output json', async () => {

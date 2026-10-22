@@ -140,10 +140,14 @@ function readLine(
       pendingPromptInput.delete(input);
       processText(pending);
       if (resolved) return;
-      if (isInputEnded(input)) {
-        finish();
-        return;
-      }
+    }
+
+    // A stream that already ended never fires 'end' again, so listening for
+    // it would leave this prompt unsettled forever (and exit via Node's
+    // unsettled top-level-await path once the event loop drains).
+    if (isInputEnded(input)) {
+      finish();
+      return;
     }
 
     input.on('data', onData);
